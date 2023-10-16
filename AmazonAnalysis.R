@@ -87,3 +87,38 @@ plogit_preds <- predict(plogit_wf,new_data=amazonTest,type="prob")%>%
 
 ## Write prediction file to CSV
 vroom_write(x=plogit_preds, file="./PLogitPreds.csv", delim=",") 
+
+#Random Forest
+rf_mod <- rand_forest(mtry = tune(),
+                      min_n=tune(),
+                      trees=500) %>%
+set_engine("ranger") %>%
+set_mode("classification")
+
+rf_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(rf_mod)
+rf_tuning_grid <- grid_regular(mtry(c(1, 10)), min_n(), levels = 3)
+
+folds <- vfold_cv(amazonTrain, v = 5, repeats=1)
+
+CV_results <- rf_wf %>%
+tune_grid(resamples=folds,grid=rf_tuning_grid,metrics=metric_set(roc_auc)) #Or leave metrics NULL
+
+
+## Find Best Tuning Parameters
+bestTune <- CV_results %>%
+select_best("roc_auc")
+
+final_wf <- rf_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=amazonTrain)
+
+rf_preds <- final_wf %>%
+  predict(new_data=amazonTest, type="prob") %>%
+  bind_cols(., amazonTest) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=rf_preds, file="./RFPreds.csv", delim=",") 
