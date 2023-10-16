@@ -56,7 +56,7 @@ The following objects are masked from ‘package:readr’:
 ✖ dplyr::lag()      masks stats::lag()
 ✖ yardstick::spec() masks vroom::spec(), readr::spec()
 ✖ recipes::step()   masks stats::step()
-• Dig deeper into tidy modeling with R at https://www.tmwr.org
+• Use suppressPackageStartupMessages() to eliminate package startup messages
 > library(embed)
 > library(ggmosaic)
 Error in library(ggmosaic) : there is no package called ‘ggmosaic’
