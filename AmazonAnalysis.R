@@ -16,8 +16,8 @@ amazonTrain$ACTION <- as.factor(amazonTrain$ACTION)
 
 my_recipe <- recipe(ACTION~., data=amazonTrain) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>%# turn all numeric features into factors
-  step_other(all_nominal_predictors(), threshold = .01) %>% # combines categorical values that occur <5% into an "other" value
-  step_dummy(all_nominal_predictors())
+  step_other(all_nominal_predictors(), threshold = .01) #%>% # combines categorical values that occur <5% into an "other" value
+  #step_dummy(all_nominal_predictors())
 prep <- prep(my_recipe)
 baked <- bake
 
@@ -94,10 +94,11 @@ rf_mod <- rand_forest(mtry = tune(),
                       trees=500) %>%
 set_engine("ranger") %>%
 set_mode("classification")
+#params are 10 and 21
 
 rf_wf <- workflow() %>%
   add_recipe(my_recipe) %>%
-  add_model(rf_mod)
+  add_model(rf_mod) 
 rf_tuning_grid <- grid_regular(mtry(c(1, 10)), min_n(), levels = 3)
 
 folds <- vfold_cv(amazonTrain, v = 5, repeats=1)
@@ -114,11 +115,51 @@ final_wf <- rf_wf %>%
   finalize_workflow(bestTune) %>%
   fit(data=amazonTrain)
 
-rf_preds <- final_wf %>%
-  predict(new_data=amazonTest, type="prob") %>%
+rf_preds <- predict(final_wf, new_data=amazonTest, type="prob") %>%
   bind_cols(., amazonTest) %>%
   select(id, .pred_1) %>%
   rename(Action=.pred_1) %>%
   rename(Id=id)
 
 vroom_write(x=rf_preds, file="./RFPreds.csv", delim=",") 
+
+
+##Naive Bayes
+library(tidymodels)
+library(discrim)
+library(naivebayes)
+
+## nb model
+nb_model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
+set_mode("classification") %>%
+set_engine("naivebayes") 
+
+nb_wf <- workflow() %>%
+add_recipe(my_recipe) %>%
+add_model(nb_model) 
+
+## Tune smoothness and Laplace here
+tuning_grid <- grid_regular(Laplace(),smoothness(),levels = 4)
+## Split data for CV
+folds <- vfold_cv(amazonTrain, v = 5, repeats=1)
+
+## Run the CV
+CV_results <- nb_wf %>%
+  tune_grid(resamples=folds,grid=tuning_grid,metrics=metric_set(roc_auc)) 
+
+## Find Best Tuning Parameters
+bestTune <- CV_results %>%
+  select_best("roc_auc")
+
+final_wf <-nb_wf %>%
+finalize_workflow(bestTune) %>%
+fit(data=amazonTrain)
+
+## Predict
+nb_preds <- predict(nb_wf, new_data=amazonTest, type="prob") %>%
+  bind_cols(., amazonTest) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=nb_preds, file="./NB_Preds.csv", delim=",") 
