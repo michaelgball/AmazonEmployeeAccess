@@ -213,10 +213,45 @@ vroom_write(x=knn_preds, file="./KNN_Preds.csv", delim=",")
 ##PCA
 my_recipe <- recipe(ACTION~., amazonTrain) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>% # turn all numeric features into factors5
-  #step_other(all_nominal_predictors(), threshold = .001) %>% # combines categorical values that occur <5% into an "other" value
+  step_other(all_nominal_predictors(), threshold = .001) %>% # combines categorical values that occur <5% into an "other" value
   step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
   step_normalize(all_predictors()) %>%
   step_pca(all_predictors(), threshold=.9) #Threshold is between 0 and 1
 prep <- prep(my_recipe)
 bake(prep, amazonTest)
 
+##SVM
+library(kernlab)
+
+svmRadial <- svm_rbf(rbf_sigma=tune(), cost=tune()) %>% # set or tune
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+svm_wf <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(svmRadial)
+
+## Tune smoothness and Laplace here
+tuning_grid <- grid_regular(rbf_sigma(), cost(),levels = 3)
+## Split data for CV
+folds <- vfold_cv(amazonTrain, v = 5, repeats=1)
+
+## Run the CV
+CV_results <- svm_wf %>%
+  tune_grid(resamples=folds,grid=tuning_grid,metrics=metric_set(roc_auc)) 
+
+## Find Best Tuning Parameters
+bestTune <- CV_results %>%
+  select_best("roc_auc")
+
+final_wf <-svm_wf %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=amazonTrain)
+
+svm_preds <- predict(final_wf, new_data=amazonTest, type="prob") %>%
+  bind_cols(., amazonTest) %>%
+  select(id, .pred_1) %>%
+  rename(Action=.pred_1) %>%
+  rename(Id=id)
+
+vroom_write(x=svm_preds, file="./SVM_Preds.csv", delim=",")
